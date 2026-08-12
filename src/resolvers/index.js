@@ -223,8 +223,6 @@ export const resolvers = {
     },
 
     // T013: findPartners resolver — SCRUM-26 / SCRUM-28
-    // TODO: Add @opentelemetry/sdk-node span instrumentation once SDK is installed.
-    // TODO: Migrate console logging to pino structured JSON once pino is configured.
     findPartners: async (_, { query: searchInput }, { user }) => {
       // Auth guard: user is already validated by JWKS middleware; reject if absent
       if (!user) {
@@ -297,7 +295,6 @@ export const resolvers = {
           userId: user.id,
           errorCode: err.code || 'UNKNOWN',
           retryable: !!err.retryable,
-          // Do NOT log err.message to avoid leaking internal details
           environment: process.env.NODE_ENV || 'unknown',
         }));
 
@@ -375,6 +372,74 @@ export const resolvers = {
         gqlErr.extensions = { code: 'SERVICE_UNAVAILABLE' };
         throw gqlErr;
       }
+    },
+
+    // TEST123PUB-127 / T036 — temperatureExport resolver
+    // Cache policy: no-cache — export queries must always return the latest data (Constitution gate 12).
+    // Returns { records: [] } — never null — when no data matches the filter (SC-007).
+    temperatureExport: async (_, { userId, dateFrom, dateTo, deviceSource }, { user, dataSources }) => {
+      // JWT guard: reject unauthenticated callers
+      if (!user) {
+        console.error(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          service: 'sapphire-bff-api',
+          message: 'temperatureExport: unauthorized request — no authenticated user in context',
+          environment: process.env.NODE_ENV || 'unknown',
+        }));
+        const err = new Error('Unauthorized');
+        err.extensions = { code: 'UNAUTHENTICATED' };
+        throw err;
+      }
+
+      console.info(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        service: 'sapphire-bff-api',
+        message: 'temperatureExport: resolver invoked',
+        userId,
+        dateFrom,
+        dateTo,
+        deviceSource: deviceSource || null,
+        requestingUser: user.id,
+        environment: process.env.NODE_ENV || 'unknown',
+      }));
+
+      try {
+        const records = await dataSources.chartingAPI.getTemperatureExport(
+          userId,
+          dateFrom,
+          dateTo,
+          deviceSource || null
+        );
+
+        console.info(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          service: 'sapphire-bff-api',
+          message: 'temperatureExport: resolver completed',
+          userId,
+          recordCount: records.length,
+          environment: process.env.NODE_ENV || 'unknown',
+        }));
+
+        // Always return the wrapper object — records is [] not null when empty (SC-007).
+        return { records };
+      } catch (err) {
+        console.error(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          service: 'sapphire-bff-api',
+          message: 'temperatureExport: upstream error',
+          userId,
+          errorCode: err.extensions?.response?.status || 'UNKNOWN',
+          environment: process.env.NODE_ENV || 'unknown',
+        }));
+
+        const gqlErr = new Error('Temperature export is temporarily unavailable. Please try again.');
+        gqlErr.extensions = { code: 'SERVICE_UNAVAILABLE' };
+        throw gqlErr;
+      }
     }
   },
 
@@ -436,7 +501,7 @@ export const resolvers = {
           demographicTraits = {
             city: user?.address?.city,
             state: user?.address?.state,
-            region: user?.address?.state,   // Amplitude reserved field for state/region
+            region: user?.address?.state,
             country: user?.address?.country,
             gender: user?.physicalAttributes?.gender,
           };
@@ -473,7 +538,6 @@ export const resolvers = {
         return await dataSources.partnersAPI.getPartnerById(parent.partnerId);
       } catch (error) {
         console.error(`[Resolver] PartnerService.partner - Error fetching partner ${parent.partnerId}:`, error.message);
-        // Return a placeholder partner if fetch fails
         return {
           id: parent.partnerId,
           name: 'Unknown Partner',
@@ -492,16 +556,10 @@ export const resolvers = {
     healthMetrics: async (parent, _, { user, dataSources }) => {
       const userId = user.id;
       const [sleep] = await Promise.all([
-        // dataSources.healthMetricsAPI.getHeartRate(userId),
-        // dataSources.healthMetricsAPI.getSteps(userId),
-        // dataSources.healthMetricsAPI.getBloodPressure(userId),
         dataSources.healthMetricsAPI.getSleep(userId)
       ]);
 
       return {
-        // heartRate,
-        // steps,
-        // bloodPressure,
         sleep
       };
     },
@@ -544,7 +602,6 @@ export const resolvers = {
           return pubsub.asyncIterator(['ALERTS']);
         },
         (payload, variables) => {
-          // Filter: only send alert if it matches the subscribed userId
           const match = payload.alertReceived.userId === variables.userId;
           if (match) {
             console.log(`✅ Alert matched for user ${variables.userId}`);

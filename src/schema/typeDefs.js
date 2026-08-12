@@ -37,6 +37,24 @@ export const typeDefs = gql`
       "Optional device source filter (e.g. wearable, manual)."
       deviceSource: String
     ): [TemperatureTrendData!]!
+    """
+    Export raw body temperature records for a user within a date range.
+    Returns all individual readings (value, unit, timestamp, deviceSource) that
+    fall within dateFrom..dateTo, optionally filtered by device source.
+    Returns an empty records array — never null — when no data matches (SC-007).
+    Requires a valid Keycloak-issued JWT (RS256) in the Authorization header.
+    Cache policy: no-cache — export results must always reflect the latest data.
+    """
+    temperatureExport(
+      "User identifier (email or UUID)."
+      userId: ID!
+      "ISO-8601 start of the export window."
+      dateFrom: String!
+      "ISO-8601 end of the export window."
+      dateTo: String!
+      "Optional device source filter."
+      deviceSource: String
+    ): TemperatureExportData!
   }
 
   """
@@ -124,6 +142,16 @@ export const typeDefs = gql`
     periodStart: String!
     "ISO-8601 end of this aggregation bucket."
     periodEnd: String!
+  }
+
+  """
+  Result of a temperature export query.
+  records is always an array — never null — even when the date range contains
+  no temperature data (SC-007).
+  """
+  type TemperatureExportData {
+    "Flat list of individual temperature readings matching the export filter."
+    records: [Temperature!]!
   }
 
   type Mutation {
