@@ -268,6 +268,118 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ...
 - `MONTH` - Last 30 days
 - `YEAR` - Last 12 months
 
+### Temperature GraphQL Fields (TEST123PUB-127)
+
+Two top-level query fields expose body temperature data. Both require a valid Keycloak JWT
+Bearer token and perform server-side authorization (userId in the JWT must match the requested
+userId or the caller must have admin scope).
+
+#### `temperatureData` — trend chart data
+
+Returns time-series temperature readings for chart rendering.
+
+**Signature:**
+```graphql
+temperatureData(
+  userId:       ID!             # Target user
+  granularity:  String!         # HOURLY | DAILY | WEEKLY
+  dateFrom:     String!         # ISO-8601 date (e.g. "2025-01-01")
+  dateTo:       String!         # ISO-8601 date (e.g. "2025-01-31")
+  deviceSource: String          # Optional device filter (e.g. "fitbit", "withings")
+): [TemperatureDataPoint!]!
+```
+
+**Response type:**
+```graphql
+type TemperatureDataPoint {
+  timestamp: String!   # ISO-8601 datetime
+  value:     Float!    # Temperature in °C
+}
+```
+
+**Example:**
+```graphql
+query GetTemperatureData($userId: ID!, $granularity: String!, $dateFrom: String!, $dateTo: String!) {
+  temperatureData(userId: $userId, granularity: $granularity, dateFrom: $dateFrom, dateTo: $dateTo) {
+    timestamp
+    value
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "userId": "user@example.com",
+  "granularity": "DAILY",
+  "dateFrom": "2025-01-01",
+  "dateTo": "2025-01-31"
+}
+```
+
+#### `temperatureExport` — raw export for analytics download
+
+Returns all raw temperature records within a date range. Always returns fresh data (no caching).
+Never returns `null` — an empty range produces `{ records: [] }`.
+
+**Signature:**
+```graphql
+temperatureExport(
+  userId:       ID!     # Target user
+  dateFrom:     String! # ISO-8601 date
+  dateTo:       String! # ISO-8601 date
+  deviceSource: String  # Optional device filter
+): TemperatureExportResult!
+```
+
+**Response type:**
+```graphql
+type TemperatureExportResult {
+  records: [TemperatureRecord!]!
+}
+
+type TemperatureRecord {
+  timestamp:    String!
+  value:        Float!
+  unit:         String!   # Always "celsius"
+  deviceSource: String
+  userId:       ID!
+}
+```
+
+**Example:**
+```graphql
+query ExportTemperature($userId: ID!, $dateFrom: String!, $dateTo: String!) {
+  temperatureExport(userId: $userId, dateFrom: $dateFrom, dateTo: $dateTo) {
+    records {
+      timestamp
+      value
+      unit
+      deviceSource
+    }
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "userId": "user@example.com",
+  "dateFrom": "2025-01-01",
+  "dateTo": "2025-01-31"
+}
+```
+
+#### Resolver Observability
+
+Both temperature resolvers emit an OTLP histogram metric:
+
+| Metric | Unit | Attributes |
+|---|---|---|
+| `bff.resolver.duration` | `ms` | `resolver`, `granularity` (temperatureData only), `outcome` (`success`\|`error`) |
+
+This metric is visible in any OpenTelemetry-compatible backend (Jaeger, Grafana Tempo, etc.).
+
 ### Example Subscription - Real-time Alerts
 
 Subscribe to real-time health alerts:
@@ -321,6 +433,10 @@ The GraphQL resolvers call these REST endpoints using the authenticated user's I
 ### Insights Service
 - `GET /api/insights/{userId}` - Health insights
 
+### Charting API — Temperature Endpoints
+- `GET /api/v1/temperature/trend/{userId}?granularity={g}&dateFrom={d}&dateTo={d}[&deviceSource={s}]` - Temperature trend data (→ `temperatureData` resolver)
+- `GET /api/v1/temperature/export/{userId}?dateFrom={d}&dateTo={d}[&deviceSource={s}]` - Raw temperature export (→ `temperatureExport` resolver)
+
 **Note:** `userId` is automatically extracted from the Keycloak JWT token (email field)
 
 ## Dashboard Components
@@ -338,6 +454,8 @@ Based on the UI screenshot, the API provides data for:
 5. **Blood Pressure History Chart** - Dual-line chart
 6. **Recent Readings Table** - Latest blood pressure readings
 7. **Health Insights** - Personalized health recommendations
+8. **Body Temperature Trend Chart** - Time-series temperature data (TEST123PUB-127)
+9. **Health Data Export** - CSV/JSON export including temperature records (TEST123PUB-127)
 
 ## Frontend Integration
 
@@ -408,6 +526,7 @@ The API is instrumented with OpenTelemetry for distributed tracing and observabi
 - **Span Attributes** - User IDs, metric types, response counts
 - **Error Tracking** - Exceptions recorded in spans
 - **OTLP Export** - Traces exported via OTLP/HTTP protocol
+- **Resolver Duration Metrics** - `bff.resolver.duration` histogram for temperature resolvers
 
 ### Configuration
 
@@ -448,6 +567,14 @@ HTTP POST /graphql
 │   └── Dashboard.insights
 │       └── InsightsAPI.getHealthInsights
 │           └── HTTP GET /insights/{userId}
+├── GraphQL Operation: GetTemperatureData
+│   └── Query.temperatureData
+│       └── ChartingAPI.getTemperatureTrend
+│           └── HTTP GET /api/v1/temperature/trend/{userId}
+└── GraphQL Operation: ExportTemperature
+    └── Query.temperatureExport
+        └── ChartingAPI.getTemperatureExport
+            └── HTTP GET /api/v1/temperature/export/{userId}
 ```
 
 ## Real-time Alerts

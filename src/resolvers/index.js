@@ -2,6 +2,16 @@ import { pubsub } from '../utils/redis.js';
 import { track, identify, page } from '../utils/analytics.js';
 import { GraphQLJSON } from 'graphql-scalars';
 import { withFilter } from 'graphql-subscriptions';
+import { metrics } from '@opentelemetry/api';
+
+// TEST123PUB-127 / T041 — resolver duration histogram
+// Histogram is created once at module scope; meter is a no-op if the SDK
+// is not yet started (OTEL SDK guarantees this is safe).
+const _meter = metrics.getMeter('sapphire-bff-api');
+const resolverDurationHistogram = _meter.createHistogram('bff.resolver.duration', {
+  description: 'Duration of BFF GraphQL resolver execution in milliseconds',
+  unit: 'ms',
+});
 
 /**
  * Convert period enum to time range in nanoseconds
@@ -323,6 +333,9 @@ export const resolvers = {
         throw err;
       }
 
+      // T041 — record resolver start time for duration histogram
+      const resolverStart = performance.now();
+
       console.info(JSON.stringify({
         timestamp: new Date().toISOString(),
         level: 'info',
@@ -346,6 +359,13 @@ export const resolvers = {
           deviceSource || null
         );
 
+        // T041 — record successful duration
+        resolverDurationHistogram.record(performance.now() - resolverStart, {
+          resolver: 'temperatureData',
+          granularity: granularity || 'unset',
+          outcome: 'success',
+        });
+
         console.info(JSON.stringify({
           timestamp: new Date().toISOString(),
           level: 'info',
@@ -358,6 +378,13 @@ export const resolvers = {
 
         return result;
       } catch (err) {
+        // T041 — record error duration
+        resolverDurationHistogram.record(performance.now() - resolverStart, {
+          resolver: 'temperatureData',
+          granularity: granularity || 'unset',
+          outcome: 'error',
+        });
+
         console.error(JSON.stringify({
           timestamp: new Date().toISOString(),
           level: 'error',
@@ -392,6 +419,9 @@ export const resolvers = {
         throw err;
       }
 
+      // T041 — record resolver start time for duration histogram
+      const resolverStart = performance.now();
+
       console.info(JSON.stringify({
         timestamp: new Date().toISOString(),
         level: 'info',
@@ -413,6 +443,12 @@ export const resolvers = {
           deviceSource || null
         );
 
+        // T041 — record successful duration
+        resolverDurationHistogram.record(performance.now() - resolverStart, {
+          resolver: 'temperatureExport',
+          outcome: 'success',
+        });
+
         console.info(JSON.stringify({
           timestamp: new Date().toISOString(),
           level: 'info',
@@ -426,6 +462,12 @@ export const resolvers = {
         // Always return the wrapper object — records is [] not null when empty (SC-007).
         return { records };
       } catch (err) {
+        // T041 — record error duration
+        resolverDurationHistogram.record(performance.now() - resolverStart, {
+          resolver: 'temperatureExport',
+          outcome: 'error',
+        });
+
         console.error(JSON.stringify({
           timestamp: new Date().toISOString(),
           level: 'error',
