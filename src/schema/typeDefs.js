@@ -19,6 +19,24 @@ export const typeDefs = gql`
     At least one of query or semanticQuery must be non-empty.
     """
     findPartners(query: PartnerSearchInput!): HybridSearchResult!
+    """
+    Retrieve body temperature trend data (min/max/avg) for a user over a time window.
+    Results are bucketed by granularity (day, week, month) and filtered by device source.
+    Requires a valid Keycloak-issued JWT (RS256) in the Authorization header.
+    Returns an empty list when no temperature records exist for the requested window.
+    """
+    temperatureData(
+      "User identifier (email or UUID)."
+      userId: ID!
+      "Aggregation bucket: day | week | month."
+      granularity: String!
+      "ISO-8601 start of the requested window (e.g. 2024-01-01T00:00:00Z)."
+      dateFrom: String!
+      "ISO-8601 end of the requested window (e.g. 2024-01-31T23:59:59Z)."
+      dateTo: String!
+      "Optional device source filter (e.g. wearable, manual)."
+      deviceSource: String
+    ): [TemperatureTrendData!]!
   }
 
   """
@@ -67,6 +85,45 @@ export const typeDefs = gql`
     category: String!
     "Name of the partner organisation providing this service."
     partnerName: String!
+  }
+
+  """
+  A single body temperature reading.
+  value is in the unit indicated by the unit field.
+  """
+  type Temperature {
+    "Opaque record identifier."
+    id: ID!
+    "Temperature reading (in the unit indicated by the unit field)."
+    value: Float!
+    "Unit of measurement: CELSIUS or FAHRENHEIT."
+    unit: String!
+    "ISO-8601 timestamp of when the reading was taken."
+    timestamp: String!
+    "Device or system that produced this reading (e.g. wearable, manual)."
+    deviceSource: String
+  }
+
+  """
+  Aggregated temperature trend bucket for a single time period.
+  Each bucket corresponds to one granularity slot (day, week, or month).
+  All statistical values (min, max, avg) are in the unit field's unit.
+  """
+  type TemperatureTrendData {
+    "Lowest temperature observed in this bucket."
+    minValue: Float!
+    "Highest temperature observed in this bucket."
+    maxValue: Float!
+    "Mean temperature for this bucket."
+    avgValue: Float!
+    "Unit of measurement for minValue, maxValue, and avgValue: CELSIUS or FAHRENHEIT."
+    unit: String!
+    "Aggregation granularity used for this bucket: day | week | month."
+    granularity: String!
+    "ISO-8601 start of this aggregation bucket."
+    periodStart: String!
+    "ISO-8601 end of this aggregation bucket."
+    periodEnd: String!
   }
 
   type Mutation {

@@ -308,6 +308,73 @@ export const resolvers = {
         };
         throw gqlErr;
       }
+    },
+
+    // TEST123PUB-127 / T025 — temperatureData resolver
+    temperatureData: async (_, { userId, granularity, dateFrom, dateTo, deviceSource }, { user, dataSources }) => {
+      // JWT guard: reject unauthenticated callers
+      if (!user) {
+        console.error(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          service: 'sapphire-bff-api',
+          message: 'temperatureData: unauthorized request — no authenticated user in context',
+          environment: process.env.NODE_ENV || 'unknown',
+        }));
+        const err = new Error('Unauthorized');
+        err.extensions = { code: 'UNAUTHENTICATED' };
+        throw err;
+      }
+
+      console.info(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        service: 'sapphire-bff-api',
+        message: 'temperatureData: resolver invoked',
+        userId,
+        granularity,
+        dateFrom,
+        dateTo,
+        deviceSource: deviceSource || null,
+        requestingUser: user.id,
+        environment: process.env.NODE_ENV || 'unknown',
+      }));
+
+      try {
+        const result = await dataSources.chartingAPI.getTemperatureTrend(
+          userId,
+          granularity,
+          dateFrom,
+          dateTo,
+          deviceSource || null
+        );
+
+        console.info(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          service: 'sapphire-bff-api',
+          message: 'temperatureData: resolver completed',
+          userId,
+          resultCount: result.length,
+          environment: process.env.NODE_ENV || 'unknown',
+        }));
+
+        return result;
+      } catch (err) {
+        console.error(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          service: 'sapphire-bff-api',
+          message: 'temperatureData: upstream error',
+          userId,
+          errorCode: err.extensions?.response?.status || 'UNKNOWN',
+          environment: process.env.NODE_ENV || 'unknown',
+        }));
+
+        const gqlErr = new Error('Temperature data is temporarily unavailable. Please try again.');
+        gqlErr.extensions = { code: 'SERVICE_UNAVAILABLE' };
+        throw gqlErr;
+      }
     }
   },
 

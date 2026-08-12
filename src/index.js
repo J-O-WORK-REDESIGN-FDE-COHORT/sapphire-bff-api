@@ -22,6 +22,7 @@ import { PartnersAPI } from './datasources/PartnersAPI.js';
 import { PartnerServicesAPI } from './datasources/PartnerServicesAPI.js';
 import { PartnerOnboardingAPI } from './datasources/PartnerOnboardingAPI.js';
 import { UsersAPI } from './datasources/UsersAPI.js';
+import { ChartingAPI } from './datasources/ChartingAPI.js';
 import { verifyToken, extractTokenFromHeader } from './utils/auth.js';
 import { initializeRedisSubscriber, pubsub } from './utils/redis.js';
 import { initializeAnalytics } from './utils/analytics.js';
@@ -76,6 +77,7 @@ function createDataSources() {
     partnerServicesAPI: new PartnerServicesAPI(),
     partnerOnboardingAPI: new PartnerOnboardingAPI(),
     usersAPI: new UsersAPI(),
+    chartingAPI: new ChartingAPI(),
   };
 }
 
